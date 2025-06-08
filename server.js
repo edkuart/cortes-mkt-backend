@@ -1,191 +1,134 @@
-// backend/server.js
+// 📁 backend/server.js
 
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-const { setupSwagger } = require('./swagger'); // 🧭 Swagger importado
+const { sequelize } = require('./models');
+const { setupSwagger } = require('./swagger');
 
 const app = express();
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true
+}));
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
-// Swagger Docs habilitado en /api-docs
-setupSwagger(app); // 🧭 Swagger activado
+// Swagger
+setupSwagger(app);
 
-const favoritosRoutes = require('./routes/favoritosRoutes');
-app.use('/api/favoritos', favoritosRoutes);
+// Rutas principales
+app.use('/api/favoritos', require('./routes/favoritosRoutes'));
+app.use('/api/devoluciones', require('./routes/devolucionesRoutes'));
+app.use('/api/usuarios', require('./routes/usuariosRoutes'));
+app.use('/api/pedidos', require('./routes/pedidosRoutes'));
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/productos', require('./routes/productosRoutes'));
+app.use('/api/ia', require('./routes/ai.routes'));
+app.use('/api/resenas', require('./routes/resenasRoutes'));
+app.use('/api/entregas', require('./routes/entregasRoutes'));
+app.use('/api/vendedores', require('./routes/vendedoresRoutes'));
+app.use('/api/mensajes', require('./routes/mensajesRoutes'));
+app.use('/api/historial', require('./routes/historialRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/notificaciones', require('./routes/notificacionesRoutes'));
 
-// Luego ya tus rutas:
-const devolucionesRoutes = require('./routes/devolucionesRoutes');
-app.use('/api/devoluciones', devolucionesRoutes);
+// Rutas debug protegidas
+if (process.env.NODE_ENV === 'development') {
+  app.use('/debug', require('./routes/debugRoutes'));
 
-app.get('/debug/crear-pedido', async (req, res) => {
-  const { Pedido } = require('./models');
-
-  const nuevo = await Pedido.create({
-    compradorId: 1,
-    total: 100,
-    estado: 'pendiente',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  app.get('/debug/crear-pedido', async (req, res) => {
+    const { Pedido } = require('./models');
+    const nuevo = await Pedido.create({
+      compradorId: 1,
+      total: 100,
+      estado: 'pendiente',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    res.json(nuevo);
   });
 
-  res.json(nuevo);
-});
+  app.get('/debug/crear-usuario', async (req, res) => {
+    const { Usuario, Vendedor } = require('./models');
+    const bcrypt = require('bcryptjs');
 
-app.get('/debug/crear-usuario', async (req, res) => {
-  const { Usuario, Vendedor } = require('./models');
-  const bcrypt = require('bcryptjs');
+    try {
+      const existente = await Usuario.findOne({ where: { correo: 'test@correo.com' } });
+      if (existente) return res.status(200).json({ mensaje: '⚠️ Usuario ya existe', usuario: existente });
 
-  try {
-    const existente = await Usuario.findOne({ where: { correo: 'test@correo.com' } });
+      const hash = await bcrypt.hash('123456', 10);
+      const nuevoUsuario = await Usuario.create({
+        nombreCompleto: 'Preda Welch',
+        correo: 'test@correo.com',
+        contraseña: hash,
+        rol: 'vendedor'
+      });
 
-    if (existente) {
-      return res.status(200).json({ mensaje: '⚠️ Usuario ya existe', usuario: existente });
+      const nuevoVendedor = await Vendedor.create({
+        usuarioId: nuevoUsuario.id,
+        telefono: '12345678',
+        direccion: 'Zona 1, Xela',
+        municipio: 'Quetzaltenango',
+        departamento: 'Quetzaltenango',
+        estado: 'pendiente'
+      });
+
+      res.status(201).json({ mensaje: '✅ Usuario y vendedor creados', usuario: nuevoUsuario, vendedor: nuevoVendedor });
+    } catch (error) {
+      console.error('❌ Error al crear usuario y vendedor:', error);
+      res.status(500).json({ mensaje: 'Error al crear usuario y vendedor', error });
     }
+  });
 
-    const hash = await bcrypt.hash('123456', 10);
+  app.get('/debug/crear-comprador', async (req, res) => {
+    const { Usuario } = require('./models');
+    const bcrypt = require('bcryptjs');
 
-    const nuevoUsuario = await Usuario.create({
-      nombreCompleto: 'Preda Welch',
-      correo: 'test@correo.com',
-      contraseña: hash,
-      rol: 'vendedor'
-    });
+    try {
+      const existente = await Usuario.findOne({ where: { correo: 'comprador@correo.com' } });
+      if (existente) return res.status(200).json({ mensaje: '⚠️ Comprador ya existe', usuario: existente });
 
-    const nuevoVendedor = await Vendedor.create({
-      usuarioId: nuevoUsuario.id,
-      telefono: '12345678',
-      direccion: 'Zona 1, Xela',
-      municipio: 'Quetzaltenango',
-      departamento: 'Quetzaltenango',
-      estado: 'pendiente'
-    });
+      const hash = await bcrypt.hash('123456', 10);
+      const nuevoUsuario = await Usuario.create({
+        nombreCompleto: 'Comprador Test',
+        correo: 'comprador@correo.com',
+        contraseña: hash,
+        rol: 'comprador'
+      });
 
-    res.status(201).json({
-      mensaje: '✅ Usuario y vendedor creados',
-      usuario: nuevoUsuario,
-      vendedor: nuevoVendedor
-    });
-
-  } catch (error) {
-    console.error('❌ Error al crear usuario y vendedor:', error);
-    res.status(500).json({ mensaje: 'Error al crear usuario y vendedor', error });
-  }
-});
-
-app.get('/debug/crear-comprador', async (req, res) => {
-  const { Usuario } = require('./models');
-  const bcrypt = require('bcryptjs');
-
-  try {
-    const existente = await Usuario.findOne({ where: { correo: 'comprador@correo.com' } });
-
-    if (existente) {
-      return res.status(200).json({ mensaje: '⚠️ Comprador ya existe', usuario: existente });
+      res.status(201).json({ mensaje: '✅ Comprador creado', usuario: nuevoUsuario });
+    } catch (error) {
+      console.error('❌ Error al crear comprador:', error);
+      res.status(500).json({ mensaje: 'Error al crear comprador' });
     }
+  });
+}
 
-    const hash = await bcrypt.hash('123456', 10);
-
-    const nuevoUsuario = await Usuario.create({
-      nombreCompleto: 'Comprador Test',
-      correo: 'comprador@correo.com',
-      contraseña: hash,
-      rol: 'comprador'
-    });
-
-    res.status(201).json({ mensaje: '✅ Comprador creado', usuario: nuevoUsuario });
-
-  } catch (error) {
-    console.error('❌ Error al crear comprador:', error);
-    res.status(500).json({ mensaje: 'Error al crear comprador' });
-  }
-});
-
-// Importar rutas
-const usuariosRoutes = require('./routes/usuariosRoutes');
-const pedidosRoutes = require('./routes/pedidosRoutes');
-const authRoutes = require('./routes/authRoutes');
-const productosRoutes = require('./routes/productosRoutes');
-const aiRoutes = require('./routes/ai.routes');
-const entregasRoutes = require('./routes/entregasRoutes');
-const resenasRoutes = require('./routes/resenasRoutes');
-const vendedoresRoutes = require('./routes/vendedoresRoutes');
-const mensajesRoutes = require('./routes/mensajesRoutes');
-const historialRoutes = require('./routes/historialRoutes');
-const debugRoutes = require('./routes/debugRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-
-app.use('/api/usuarios', usuariosRoutes);
-app.use('/api/pedidos', pedidosRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/productos', productosRoutes);
-app.use('/api/ia', aiRoutes);
-app.use('/api/resenas', resenasRoutes);
-app.use('/api/entregas', entregasRoutes);
-app.use('/api/vendedores', vendedoresRoutes);
-app.use('/api/mensajes', mensajesRoutes);
-app.use('/api/historial', historialRoutes);
-app.use('/debug', debugRoutes);
-app.use('/api/admin', adminRoutes);
-// Ruta de prueba
+// Ruta base
 app.get('/', (req, res) => {
   res.send('🚀 Bienvenido al Marketplace Modular Backend');
 });
 
-app.get('/debug/pedidos', async (req, res) => {
-  const { Pedido } = require('./models');
-  const pedidos = await Pedido.findAll();
-  res.json(pedidos);
-});
-
-const notificacionesRoutes = require('./routes/notificacionesRoutes');
-app.use('/api/notificaciones', notificacionesRoutes);
-
-// Puerto y sincronización de base de datos
+// Inicialización
 const PORT = process.env.PORT || 4000;
-const { sequelize } = require('./models');
+const resetDB = process.env.RESET_DB === 'true';
 
-sequelize.sync({ force: true })
+sequelize.sync({ force: resetDB })
   .then(async () => {
-    console.log("🟢 Base de datos sincronizada correctamente");
+    console.log('🟢 Base de datos sincronizada correctamente');
 
     const estructura = await sequelize.getQueryInterface().describeTable('productos');
-    console.log("📊 Estructura de la tabla productos:");
+    console.log('📊 Estructura de la tabla productos:');
     console.table(estructura);
 
-    if (!estructura.promedioCalificacion) {
-      console.warn("❌ promedioCalificacion NO está en la tabla. Revisa el modelo o el require.");
-    } else {
-      console.log("✅ promedioCalificacion está presente correctamente.");
-    }
-
-    const server = app.listen(PORT, '0.0.0.0', () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
       console.log(`📘 Swagger disponible en http://localhost:${PORT}/api-docs`);
-
-      try {
-        const rutas = app._router?.stack
-          .filter(r => r.route)
-          .map(r =>
-            `➡ Ruta registrada: ${Object.keys(r.route.methods).join(', ').toUpperCase()} ${r.route.path}`
-          );
-
-        rutas?.forEach(r => console.log(r));
-      } catch (e) {
-        console.warn("⚠ No se pudo mostrar las rutas registradas:", e.message);
-      }
     });
   })
   .catch((error) => {
-    console.error("🔴 Error al sincronizar la base de datos:", error);
+    console.error('🔴 Error al sincronizar la base de datos:', error);
   });
-
-const db = require('./models');
-
-db.sequelize.sync({ force: true }).then(() => {
-  console.log('🔁 Base de datos recreada correctamente');
-});
